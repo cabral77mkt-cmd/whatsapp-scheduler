@@ -1,0 +1,11 @@
+[build]
+  builder = "nixpacks"
+  buildCommand = "cd frontend && npm install && npm run build && cd ../backend && npm install"
+
+[deploy]
+  startCommand = "node backend/src/server.js"
+  restartPolicyType = "on_failure"
+  restartPolicyMaxRetries = 10
+
+[[volumes]]
+  mountPath = "/app/backend/data"

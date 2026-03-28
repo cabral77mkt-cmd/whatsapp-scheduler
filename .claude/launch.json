@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "whatsapp-scheduler-frontend",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["C:/Users/MKT/Desktop/GIT/whatsapp-scheduler/frontend/start-vite.js"],
+      "port": 5173
+    }
+  ]
+}

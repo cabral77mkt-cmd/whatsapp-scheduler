@@ -1,0 +1,24 @@
+{
+  "name": "whatsapp-scheduler-backend",
+  "version": "1.0.0",
+  "description": "Backend para agendamento de mensagens WhatsApp",
+  "main": "src/server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.16",
+    "cors": "^2.8.5",
+    "express": "^4.18.3",
+    "node-cron": "^3.0.3",
+    "pino": "^8.19.0",
+    "pino-pretty": "^11.0.0",
+    "qrcode": "^1.5.3",
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}
