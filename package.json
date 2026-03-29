@@ -2,7 +2,7 @@
   "name": "whatsapp-scheduler",
   "version": "1.0.0",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "build": "cd frontend && npm install && npm run build && cd ../backend && npm install",
