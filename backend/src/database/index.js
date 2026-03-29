@@ -66,6 +66,20 @@ const migrateColumn = (table, column, definition) => {
   }
 };
 
+// Tabela de rastreamento de entrega de mensagens
+db.exec(`
+  CREATE TABLE IF NOT EXISTS delivery_tracking (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    bulk_id INTEGER NOT NULL,
+    phone TEXT NOT NULL,
+    msg_id TEXT,
+    wa_status INTEGER DEFAULT 1,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_delivery_msg_id ON delivery_tracking (msg_id);
+  CREATE INDEX IF NOT EXISTS idx_delivery_bulk_id ON delivery_tracking (bulk_id);
+`);
+
 migrateColumn('scheduled_messages', 'recipient_type', "TEXT DEFAULT 'number'");
 migrateColumn('scheduled_messages', 'recipient_id', 'TEXT');
 migrateColumn('bulk_messages', 'results', "TEXT DEFAULT '[]'");

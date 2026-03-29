@@ -17,6 +17,131 @@ const STATUS_LABEL = {
   running:   '⏳ Em andamento',
 };
 
+const DELIVERY_ICON = {
+  failed:    { icon: '❌', label: 'Falhou', color: 'text-red-400' },
+  sent:      { icon: '✓', label: 'Enviado (não confirmado)', color: 'text-gray-400' },
+  delivered: { icon: '✓✓', label: 'Entregue ao celular', color: 'text-blue-400' },
+  read:      { icon: '✓✓', label: 'Lido', color: 'text-whatsapp-green' },
+  played:    { icon: '🔊', label: 'Reproduzido', color: 'text-whatsapp-green' },
+};
+
+function DeliveryModal({ bulkId, onClose, onResend }) {
+  const [data, setData] = useState(null);
+  const [filter, setFilter] = useState('all');
+  const [resending, setResending] = useState(false);
+
+  useEffect(() => {
+    api.get(`/messages/bulk/${bulkId}/deliveries`)
+      .then(setData)
+      .catch(() => toast.error('Erro ao carregar entregas'));
+  }, [bulkId]);
+
+  const filtered = data?.deliveries?.filter((d) => {
+    if (filter === 'undelivered') return d.wa_status <= 1;
+    if (filter === 'delivered') return d.wa_status === 2;
+    if (filter === 'read') return d.wa_status >= 3;
+    return true;
+  }) || [];
+
+  const undeliveredCount = data?.deliveries?.filter((d) => d.wa_status <= 1).length || 0;
+
+  const handleResend = async () => {
+    if (!confirm(`Reenviar para ${undeliveredCount} contato(s) não confirmados?`)) return;
+    setResending(true);
+    try {
+      await api.post(`/messages/bulk/${bulkId}/resend-undelivered`);
+      toast.success('Reenvio iniciado!');
+      onResend();
+      onClose();
+    } catch (err) {
+      toast.error(err.message || 'Erro ao reenviar');
+    } finally {
+      setResending(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70" onClick={onClose}>
+      <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-lg max-h-[85vh] flex flex-col"
+        onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-gray-700">
+          <div>
+            <h3 className="font-semibold text-white">Verificar Entregas</h3>
+            {data && (
+              <p className="text-xs text-gray-400 mt-0.5">
+                {data.deliveries.filter(d => d.wa_status >= 2).length} entregues •{' '}
+                {undeliveredCount} não confirmados •{' '}
+                {data.deliveries.filter(d => d.wa_status >= 3).length} lidos
+              </p>
+            )}
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-white text-xl leading-none">×</button>
+        </div>
+
+        {/* Filtros */}
+        <div className="flex gap-2 p-3 border-b border-gray-700">
+          {[
+            { key: 'all', label: 'Todos' },
+            { key: 'undelivered', label: `Não entregues (${undeliveredCount})` },
+            { key: 'delivered', label: 'Entregues' },
+            { key: 'read', label: 'Lidos' },
+          ].map(({ key, label }) => (
+            <button key={key} onClick={() => setFilter(key)}
+              className={`text-xs px-2 py-1 rounded-md border transition-all ${filter === key
+                ? 'border-whatsapp-green bg-whatsapp-green/10 text-whatsapp-green'
+                : 'border-gray-700 text-gray-400'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Lista */}
+        <div className="flex-1 overflow-y-auto divide-y divide-gray-800">
+          {!data ? (
+            <div className="flex items-center justify-center py-8">
+              <span className="w-6 h-6 border-2 border-whatsapp-green border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : filtered.length === 0 ? (
+            <p className="text-center text-gray-500 text-sm py-8">Nenhum resultado</p>
+          ) : filtered.map((d, i) => {
+            const ds = DELIVERY_ICON[d.status_label] || DELIVERY_ICON.sent;
+            return (
+              <div key={i} className="flex items-center justify-between px-4 py-3">
+                <div>
+                  <p className="text-sm font-mono text-gray-200">{d.phone}</p>
+                  {d.wa_status === 1 && (
+                    <p className="text-xs text-yellow-500 mt-0.5">⚠ Possível "Aguardando mensagem" no celular</p>
+                  )}
+                </div>
+                <div className="text-right">
+                  <span className={`text-sm font-bold ${ds.color}`}>{ds.icon}</span>
+                  <p className={`text-xs ${ds.color}`}>{ds.label}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Footer */}
+        {undeliveredCount > 0 && (
+          <div className="p-4 border-t border-gray-700">
+            <button onClick={handleResend} disabled={resending}
+              className="btn-primary w-full justify-center py-2.5 text-sm">
+              {resending
+                ? <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Reenviando...</>
+                : `🔁 Reenviar para ${undeliveredCount} não confirmado(s)`}
+            </button>
+            <p className="text-xs text-gray-500 text-center mt-2">
+              Inclui contatos com ✓ (enviado mas não confirmado no celular)
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function BulkSend() {
   const [contacts, setContacts] = useState([]);
   const [selectedPhones, setSelectedPhones] = useState([]);
@@ -27,6 +152,7 @@ export default function BulkSend() {
   const [mode, setMode] = useState('contacts');
   const [bulkHistory, setBulkHistory] = useState([]);
   const [expanded, setExpanded] = useState({});
+  const [deliveryModal, setDeliveryModal] = useState(null); // bulkId sendo verificado
   const [delaySeconds, setDelaySeconds] = useState(2);
   const [batchSize, setBatchSize] = useState(0);
   const [batchDelaySeconds, setBatchDelaySeconds] = useState(30);
@@ -120,6 +246,13 @@ export default function BulkSend() {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
+      {deliveryModal && (
+        <DeliveryModal
+          bulkId={deliveryModal}
+          onClose={() => setDeliveryModal(null)}
+          onResend={loadHistory}
+        />
+      )}
       <div>
         <h2 className="text-2xl font-bold text-white">Envio em Massa</h2>
         <p className="text-gray-400 text-sm mt-1">Envie a mesma mensagem para múltiplos contatos de uma vez.</p>
@@ -316,6 +449,12 @@ export default function BulkSend() {
                         <button onClick={() => handleCancel(b.id)}
                           className="text-xs text-red-400 hover:text-red-300 transition-colors">
                           Cancelar
+                        </button>
+                      )}
+                      {['completed', 'failed', 'paused', 'cancelled'].includes(b.status) && (
+                        <button onClick={() => setDeliveryModal(b.id)}
+                          className="text-xs text-yellow-400 hover:text-yellow-300 transition-colors">
+                          🔍 Verificar
                         </button>
                       )}
                       <button onClick={() => toggleExpanded(b.id)}

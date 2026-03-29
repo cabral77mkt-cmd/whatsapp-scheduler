@@ -8,6 +8,7 @@ const {
 const pino = require('pino');
 const path = require('path');
 const QRCode = require('qrcode');
+const db = require('../database');
 
 const AUTH_PATH = path.join(__dirname, '../../data/auth');
 
@@ -117,6 +118,20 @@ async function connectWhatsApp() {
       }
     }
   });
+
+  // Rastreia confirmações de entrega e leitura no banco de dados
+  // wa_status: 1=enviado ao servidor (✓), 2=entregue ao celular (✓✓), 3=lido (azul)
+  sock.ev.on('messages.update', (updates) => {
+    for (const { key, update } of updates) {
+      if (key.fromMe && key.id && update.status !== undefined) {
+        try {
+          db.prepare(
+            'UPDATE delivery_tracking SET wa_status = ?, updated_at = CURRENT_TIMESTAMP WHERE msg_id = ?'
+          ).run(update.status, key.id);
+        } catch (_) { /* ignora se tabela ainda não existe */ }
+      }
+    }
+  });
 }
 
 async function disconnectWhatsApp() {
@@ -135,7 +150,7 @@ async function sendMessage(phone, message) {
 
   const sent = await sock.sendMessage(formattedPhone, { text: message });
   if (sent?.key?.id) msgCache.set(sent.key.id, sent.message);
-  return true;
+  return { msgId: sent?.key?.id || null };
 }
 
 async function sendMessageToGroup(groupJid, message) {

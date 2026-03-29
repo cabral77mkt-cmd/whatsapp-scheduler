@@ -157,8 +157,10 @@ async function runBulkLoop(bulkId, phones, messagesArr, startIndex, delaySeconds
       console.log(`[Bulk ${bulkId}] Reconectado, retomando...`);
     }
 
+    let msgId = null;
     try {
-      await sendMessage(phone, messageText);
+      const result = await sendMessage(phone, messageText);
+      msgId = result?.msgId || null;
       sent++;
       msgsThisBatch++;
       phoneStatus = 'sent';
@@ -169,8 +171,15 @@ async function runBulkLoop(bulkId, phones, messagesArr, startIndex, delaySeconds
     }
 
     try {
+      // Salva rastreamento de entrega individual
+      db.prepare(
+        'INSERT INTO delivery_tracking (bulk_id, phone, msg_id, wa_status) VALUES (?, ?, ?, ?)'
+      ).run(bulkId, phone, msgId, phoneStatus === 'sent' ? 1 : 0);
+    } catch (_) {}
+
+    try {
       const existingResults = JSON.parse(current.results || '[]');
-      existingResults.push({ phone, status: phoneStatus });
+      existingResults.push({ phone, status: phoneStatus, msgId });
       db.prepare('UPDATE bulk_messages SET sent = ?, failed = ?, results = ? WHERE id = ?')
         .run(sent, failed, JSON.stringify(existingResults), bulkId);
     } catch (dbErr) {
@@ -268,6 +277,66 @@ router.delete('/bulk/:id', (req, res) => {
 router.get('/bulk', (req, res) => {
   const bulks = db.prepare('SELECT * FROM bulk_messages ORDER BY created_at DESC LIMIT 20').all();
   res.json(bulks);
+});
+
+// GET /api/messages/bulk/:id/deliveries - status de entrega por contato
+router.get('/bulk/:id/deliveries', (req, res) => {
+  const bulk = db.prepare('SELECT * FROM bulk_messages WHERE id = ?').get(req.params.id);
+  if (!bulk) return res.status(404).json({ error: 'Envio não encontrado' });
+
+  const deliveries = db.prepare(
+    'SELECT phone, msg_id, wa_status, updated_at FROM delivery_tracking WHERE bulk_id = ? ORDER BY id ASC'
+  ).all(req.params.id);
+
+  // Mapeia status numérico do WhatsApp para label legível
+  const statusLabel = { 0: 'failed', 1: 'sent', 2: 'delivered', 3: 'read', 4: 'played' };
+  const result = deliveries.map((d) => ({
+    ...d,
+    status_label: statusLabel[d.wa_status] || 'sent',
+  }));
+
+  res.json({ bulk_id: Number(req.params.id), total: bulk.total, deliveries: result });
+});
+
+// POST /api/messages/bulk/:id/resend-undelivered - reenviar para não entregues
+router.post('/bulk/:id/resend-undelivered', async (req, res) => {
+  if (getStatus() !== 'connected') {
+    return res.status(503).json({ error: 'WhatsApp não está conectado' });
+  }
+
+  const bulk = db.prepare('SELECT * FROM bulk_messages WHERE id = ?').get(req.params.id);
+  if (!bulk) return res.status(404).json({ error: 'Envio não encontrado' });
+
+  // Contatos com wa_status <= 1 (não chegaram ao celular) ou que falharam
+  const undelivered = db.prepare(
+    'SELECT phone FROM delivery_tracking WHERE bulk_id = ? AND wa_status <= 1'
+  ).all(req.params.id).map((r) => r.phone);
+
+  if (undelivered.length === 0) {
+    return res.status(400).json({ error: 'Nenhum contato sem entrega confirmada' });
+  }
+
+  const messagesArr = bulk.messages_json ? JSON.parse(bulk.messages_json) : [bulk.message];
+
+  const newBulk = db.prepare(
+    `INSERT INTO bulk_messages (phones, message, messages_json, total, status, results, paused_index, delay_seconds, batch_size, batch_delay_seconds)
+     VALUES (?, ?, ?, ?, 'running', '[]', 0, ?, ?, ?)`
+  ).run(
+    JSON.stringify(undelivered),
+    messagesArr[0],
+    JSON.stringify(messagesArr),
+    undelivered.length,
+    bulk.delay_seconds ?? 2,
+    bulk.batch_size ?? 0,
+    bulk.batch_delay_seconds ?? 30,
+  );
+
+  const bulkId = Number(newBulk.lastInsertRowid);
+  res.status(202).json({ bulk_id: bulkId, total: undelivered.length, message: 'Reenvio iniciado' });
+
+  runBulkLoop(bulkId, undelivered, messagesArr, 0,
+    bulk.delay_seconds ?? 2, bulk.batch_size ?? 0, bulk.batch_delay_seconds ?? 30
+  ).catch(console.error);
 });
 
 module.exports = router;
