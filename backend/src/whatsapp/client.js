@@ -15,6 +15,10 @@ let sock = null;
 let io = null;
 let connectionStatus = 'disconnected'; // disconnected | connecting | connected
 
+// Cache de mensagens enviadas/recebidas para o callback getMessage
+// O WhatsApp mobile usa isso para pedir reenvio de mensagens não descriptografadas
+const msgCache = new Map();
+
 function setIO(socketIO) {
   io = socketIO;
 }
@@ -43,6 +47,13 @@ async function connectWhatsApp() {
     printQRInTerminal: false,
     browser: ['WhatsApp Scheduler', 'Chrome', '1.0.0'],
     generateHighQualityLinkPreview: false,
+    // ESSENCIAL: sem isso, o celular mostra "Aguardando mensagem"
+    // O WhatsApp mobile pede reenvio quando não consegue descriptografar
+    getMessage: async (key) => {
+      const id = key.id;
+      if (msgCache.has(id)) return msgCache.get(id);
+      return { conversation: '' };
+    },
   });
 
   connectionStatus = 'connecting';
@@ -92,6 +103,20 @@ async function connectWhatsApp() {
   });
 
   sock.ev.on('creds.update', saveCreds);
+
+  // Armazena mensagens no cache para suportar reenvio (getMessage callback)
+  sock.ev.on('messages.upsert', ({ messages }) => {
+    for (const msg of messages) {
+      if (msg.key?.id) {
+        msgCache.set(msg.key.id, msg.message);
+        // Limita o cache a 500 mensagens para não ocupar muita memória
+        if (msgCache.size > 500) {
+          const oldest = msgCache.keys().next().value;
+          msgCache.delete(oldest);
+        }
+      }
+    }
+  });
 }
 
 async function disconnectWhatsApp() {
@@ -108,7 +133,8 @@ async function sendMessage(phone, message) {
   // Formata o número: remove +, espaços, traços e adiciona @s.whatsapp.net
   const formattedPhone = phone.replace(/[^0-9]/g, '') + '@s.whatsapp.net';
 
-  await sock.sendMessage(formattedPhone, { text: message });
+  const sent = await sock.sendMessage(formattedPhone, { text: message });
+  if (sent?.key?.id) msgCache.set(sent.key.id, sent.message);
   return true;
 }
 
@@ -118,7 +144,8 @@ async function sendMessageToGroup(groupJid, message) {
   }
 
   // JID do grupo já vem no formato correto: XXXXXXXX@g.us
-  await sock.sendMessage(groupJid, { text: message });
+  const sent = await sock.sendMessage(groupJid, { text: message });
+  if (sent?.key?.id) msgCache.set(sent.key.id, sent.message);
   return true;
 }
 
