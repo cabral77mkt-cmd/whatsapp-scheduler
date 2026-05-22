@@ -368,19 +368,33 @@ async function connectWhatsApp(userId) {
         const isLidJid  = remoteJid.endsWith('@lid');
         const lid       = isLidJid ? remoteJid.split('@')[0] : null;
 
+        // ── Resolução imediata via senderPn ───────────────────────────────
+        // Baileys inclui o telefone direto no msg.key.senderPn para mensagens @lid.
+        // Se presente, atualiza o mapa agora mesmo (sem precisar aguardar contacts.upsert).
+        if (isLidJid && lid && msg.key?.senderPn) {
+          const pn = msg.key.senderPn.replace(/[^0-9]/g, '');
+          if (pn && pn.length >= 8 && pn.length <= 15 && !session.lidToPhone.has(lid)) {
+            saveLidMappings(userId, [{ id: remoteJid, jid: `${pn}@s.whatsapp.net` }]);
+            console.log(`[CRM:${userId}] @lid ${lid} resolvido via senderPn → ${pn}`);
+          }
+        }
+
         // Registra o JID imediatamente — garante que recovery consegue encontrar depois
         // Valida o phone antes de registrar para não salvar IDs de sistema (>15 dígitos)
         try {
           const rawPhone    = isLidJid ? (session.lidToPhone.get(lid) || null) : remoteJid.split('@')[0];
           const phoneForLog = rawPhone ? rawPhone.replace(/[^0-9]/g, '') || null : null;
-          // Só registra se for número válido (8–15 dígitos) ou @lid (phone ainda null)
           const phoneOk = !phoneForLog || (phoneForLog.length >= 8 && phoneForLog.length <= 15);
           if (phoneOk) {
             db.prepare(`INSERT OR IGNORE INTO crm_seen_dm_jids (jid, user_id, phone) VALUES (?, ?, ?)`)
               .run(remoteJid, userId, phoneForLog);
+            // Atualiza phone se já estava null e agora temos
+            if (phoneForLog) {
+              db.prepare(`UPDATE crm_seen_dm_jids SET phone = ? WHERE jid = ? AND user_id = ? AND phone IS NULL`)
+                .run(phoneForLog, remoteJid, userId);
+            }
           }
         } catch (_) {}
-
 
         if (isLidJid && lid && !session.lidToPhone.has(lid)) {
           // JID @lid ainda sem mapeamento: enfileira e aguarda até 60s

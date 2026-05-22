@@ -52,7 +52,12 @@ async function handleIncomingDM(userId, msg, io, lidToPhone) {
     let phone;
     if (remoteJid.endsWith('@lid')) {
       const lid = remoteJid.split('@')[0];
+      // 1ª opção: mapa lid→phone (populado pelo contacts.upsert ou senderPn)
       phone = lidToPhone?.get(lid) || null;
+      // 2ª opção: senderPn direto na mensagem (Baileys 6.x — presente em muitas msgs @lid)
+      if (!phone && msg.key?.senderPn) {
+        phone = msg.key.senderPn.replace(/[^0-9]/g, '') || null;
+      }
       if (!phone) return; // buffer no client.js cuida da espera — aqui só descarta se ainda sem mapa
     } else {
       phone = remoteJid.split('@')[0].replace(/[^0-9]/g, '');
