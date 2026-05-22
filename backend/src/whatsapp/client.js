@@ -359,18 +359,26 @@ async function connectWhatsApp(userId) {
       const fromMe   = msg.key.fromMe;
 
       // ── CRM: cadastro automático de leads em DMs ─────────────────────────
-      if (!isGroup && !fromMe && !isHistorical) {
-        const remoteJid = msg.key?.remoteJid || '';
+      // Só processa DMs reais: @s.whatsapp.net ou @lid — ignora @newsletter, @broadcast, etc.
+      const remoteJidCrm  = msg.key?.remoteJid || '';
+      const isRealDm      = remoteJidCrm.endsWith('@s.whatsapp.net') || remoteJidCrm.endsWith('@lid');
+
+      if (isRealDm && !fromMe && !isHistorical) {
+        const remoteJid = remoteJidCrm;
         const isLidJid  = remoteJid.endsWith('@lid');
         const lid       = isLidJid ? remoteJid.split('@')[0] : null;
 
         // Registra o JID imediatamente — garante que recovery consegue encontrar depois
+        // Valida o phone antes de registrar para não salvar IDs de sistema (>15 dígitos)
         try {
-          const rawPhone = isLidJid ? (session.lidToPhone.get(lid) || null) : remoteJid.split('@')[0];
-          // Normaliza: mantém apenas dígitos (evita JIDs com traço ou outros caracteres)
+          const rawPhone    = isLidJid ? (session.lidToPhone.get(lid) || null) : remoteJid.split('@')[0];
           const phoneForLog = rawPhone ? rawPhone.replace(/[^0-9]/g, '') || null : null;
-          db.prepare(`INSERT OR IGNORE INTO crm_seen_dm_jids (jid, user_id, phone) VALUES (?, ?, ?)`)
-            .run(remoteJid, userId, phoneForLog);
+          // Só registra se for número válido (8–15 dígitos) ou @lid (phone ainda null)
+          const phoneOk = !phoneForLog || (phoneForLog.length >= 8 && phoneForLog.length <= 15);
+          if (phoneOk) {
+            db.prepare(`INSERT OR IGNORE INTO crm_seen_dm_jids (jid, user_id, phone) VALUES (?, ?, ?)`)
+              .run(remoteJid, userId, phoneForLog);
+          }
         } catch (_) {}
 
 

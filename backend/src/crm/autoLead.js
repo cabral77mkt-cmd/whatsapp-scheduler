@@ -21,10 +21,31 @@ function extractBody(msg) {
   return '[mensagem]';
 }
 
+// JID suffixes que NÃO são DMs de pessoas reais
+const NON_DM_SUFFIXES = ['@g.us', '@newsletter', '@broadcast', '@lid-dm', '@call'];
+
+/**
+ * Valida se um telefone extraído de JID é um número real.
+ * Telefones válidos: 8–15 dígitos, sem prefixos de sistema.
+ */
+function isValidPhoneNumber(phone) {
+  if (!phone) return false;
+  const digits = phone.replace(/[^0-9]/g, '');
+  if (digits.length < 8 || digits.length > 15) return false;   // fora do padrão E.164
+  if (digits.startsWith('000')) return false;                   // broadcast/sistema
+  if (digits === '0' || digits === '') return false;
+  return true;
+}
+
 async function handleIncomingDM(userId, msg, io, lidToPhone) {
   try {
     const remoteJid = msg.key?.remoteJid;
-    if (!remoteJid || remoteJid.endsWith('@g.us')) return;
+
+    // Filtra grupos, newsletters, broadcasts e qualquer JID que não seja DM real
+    if (!remoteJid) return;
+    if (NON_DM_SUFFIXES.some(s => remoteJid.endsWith(s))) return;
+    if (!remoteJid.endsWith('@s.whatsapp.net') && !remoteJid.endsWith('@lid')) return;
+
     if (msg.key?.fromMe) return;
 
     // Resolve telefone: @lid usa mapa de resolução, @s.whatsapp.net extrai diretamente
@@ -36,7 +57,12 @@ async function handleIncomingDM(userId, msg, io, lidToPhone) {
     } else {
       phone = remoteJid.split('@')[0].replace(/[^0-9]/g, '');
     }
-    if (!phone) return;
+
+    // Valida se o telefone extraído é um número real (não ID interno do WA)
+    if (!isValidPhoneNumber(phone)) {
+      console.log(`[CRM:${userId}] JID ignorado (número inválido): ${remoteJid} → "${phone}"`);
+      return;
+    }
 
     const settings = db.prepare('SELECT auto_create_leads FROM crm_settings WHERE user_id = ?').get(userId);
     if (settings && settings.auto_create_leads === 0) {
