@@ -85,12 +85,25 @@ function loadPersistedLidMap(userId) {
 }
 
 // Persiste novos mapeamentos lid→telefone e processa msgs em buffer
+// Baileys envia Contact em dois formatos:
+//   Formato A: c.id = "phone@s.whatsapp.net", c.lid = "lid@lid"
+//   Formato B: c.id = "lid@lid",              c.jid = "phone@s.whatsapp.net"
 function saveLidMappings(userId, contacts) {
   const session = getSession(userId);
   for (const c of contacts) {
-    if (!c.id?.endsWith('@s.whatsapp.net') || !c.lid) continue;
-    const phone = c.id.split('@')[0];
-    const lid   = typeof c.lid === 'string' ? c.lid.split('@')[0] : String(c.lid);
+    let phone, lid;
+
+    if (c.id?.endsWith('@s.whatsapp.net') && c.lid) {
+      // Formato A
+      phone = c.id.split('@')[0];
+      lid   = typeof c.lid === 'string' ? c.lid.split('@')[0] : String(c.lid);
+    } else if (c.id?.endsWith('@lid') && c.jid?.endsWith('@s.whatsapp.net')) {
+      // Formato B (novo protocolo multi-device)
+      lid   = c.id.split('@')[0];
+      phone = c.jid.split('@')[0];
+    } else {
+      continue;
+    }
     if (session.lidToPhone.get(lid) === phone) continue; // já mapeado, sem mudança
     session.lidToPhone.set(lid, phone);
     try {
@@ -992,9 +1005,8 @@ async function recoverMissingLeads(userId) {
     try {
       if (!isValidPhone(phone)) continue;
 
-      const contact = db.prepare('SELECT id FROM contacts WHERE user_id = ? AND phone = ?').get(userId, phone);
-      if (contact) continue;
-
+      // ⚠️ Não bloquear por contato salvo na agenda: clientes salvos na agenda
+      // também devem ser cadastrados como lead quando enviam DM.
       const lead = db.prepare('SELECT id FROM crm_leads WHERE user_id = ? AND phone = ?').get(userId, phone);
       if (lead) continue;
 
