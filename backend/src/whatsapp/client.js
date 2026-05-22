@@ -309,8 +309,19 @@ async function connectWhatsApp(userId) {
 
   // Carrega mapa persistido + escuta novos contatos para atualizar/desbloquear buffer
   loadPersistedLidMap(userId);
-  sock.ev.on('contacts.upsert', (contacts) => saveLidMappings(userId, contacts));
+  sock.ev.on('contacts.upsert', (contacts) => {
+    if (contacts.length) console.log(`[CRM:${userId}] contacts.upsert: ${contacts.length} contatos | amostra:`, JSON.stringify(contacts[0]).slice(0, 120));
+    saveLidMappings(userId, contacts);
+  });
   sock.ev.on('contacts.update', (contacts) => saveLidMappings(userId, contacts));
+
+  // chats.phoneNumberShare: WA envia o mapeamento lid→phone explicitamente
+  sock.ev.on('chats.phoneNumberShare', ({ lid, jid }) => {
+    if (lid && jid) {
+      console.log(`[CRM:${userId}] phoneNumberShare: lid=${lid} → jid=${jid}`);
+      saveLidMappings(userId, [{ id: jid.includes('@') ? jid : `${jid}@s.whatsapp.net`, lid }]);
+    }
+  });
 
   // Coleta todos os chats DM para o recovery de leads
   sock.ev.on('chats.set', ({ chats }) => {
@@ -371,11 +382,15 @@ async function connectWhatsApp(userId) {
         // ── Resolução imediata via senderPn ───────────────────────────────
         // Baileys inclui o telefone direto no msg.key.senderPn para mensagens @lid.
         // Se presente, atualiza o mapa agora mesmo (sem precisar aguardar contacts.upsert).
-        if (isLidJid && lid && msg.key?.senderPn) {
-          const pn = msg.key.senderPn.replace(/[^0-9]/g, '');
-          if (pn && pn.length >= 8 && pn.length <= 15 && !session.lidToPhone.has(lid)) {
-            saveLidMappings(userId, [{ id: remoteJid, jid: `${pn}@s.whatsapp.net` }]);
-            console.log(`[CRM:${userId}] @lid ${lid} resolvido via senderPn → ${pn}`);
+        if (isLidJid && lid) {
+          const senderPn = msg.key?.senderPn;
+          console.log(`[CRM:${userId}] msg @lid ${lid} | senderPn=${senderPn || 'AUSENTE'} | lidMapped=${session.lidToPhone.has(lid)}`);
+          if (senderPn) {
+            const pn = senderPn.replace(/[^0-9]/g, '');
+            if (pn && pn.length >= 8 && pn.length <= 15 && !session.lidToPhone.has(lid)) {
+              saveLidMappings(userId, [{ id: remoteJid, jid: `${pn}@s.whatsapp.net` }]);
+              console.log(`[CRM:${userId}] @lid ${lid} resolvido via senderPn → ${pn}`);
+            }
           }
         }
 
