@@ -42,6 +42,9 @@ function createToken(user) {
   return signToken({
     sub: user.id,
     username: user.username,
+    isAdmin: !!user.is_admin,
+    role: user.role || (user.is_admin ? 'admin' : 'seller'),
+    orgId: user.org_id || 1,
     iat: Math.floor(Date.now() / 1000),
     exp: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60, // 7 dias
   });

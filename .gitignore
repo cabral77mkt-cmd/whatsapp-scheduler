@@ -5,3 +5,12 @@ backend/data/
 frontend/dist/
 .env
 *.log
+ecosystem.config.cjs
+backend-run.log
+backend-run-err.log
+backend-restart.log
+backend-restart-err.log
+frontend-run.log
+.claude/settings.local.json
+relatorio-melhorias-crm.docx
+test-group-bypass/

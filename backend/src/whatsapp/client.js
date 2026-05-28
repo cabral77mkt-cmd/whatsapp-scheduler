@@ -106,12 +106,19 @@ function saveLidMappings(userId, contacts) {
     }
     if (session.lidToPhone.get(lid) === phone) continue; // já mapeado, sem mudança
     session.lidToPhone.set(lid, phone);
+    let wasSeenWithoutPhone = false;
     try {
       db.prepare(`INSERT OR REPLACE INTO crm_lid_phone (lid, user_id, phone, updated_at)
                   VALUES (?, ?, ?, CURRENT_TIMESTAMP)`).run(lid, userId, phone);
-      // Atualiza o phone no crm_seen_dm_jids se esse JID @lid já foi visto
-      db.prepare(`UPDATE crm_seen_dm_jids SET phone = ? WHERE jid = ? AND user_id = ? AND phone IS NULL`)
-        .run(phone, `${lid}@lid`, userId);
+      // Verifica se esse JID @lid já foi visto em DM (sem phone resolvido)
+      const seenRow = db.prepare(
+        `SELECT phone FROM crm_seen_dm_jids WHERE jid = ? AND user_id = ?`
+      ).get(`${lid}@lid`, userId);
+      if (seenRow && !seenRow.phone) {
+        wasSeenWithoutPhone = true;
+        db.prepare(`UPDATE crm_seen_dm_jids SET phone = ? WHERE jid = ? AND user_id = ?`)
+          .run(phone, `${lid}@lid`, userId);
+      }
     } catch (e) {
       console.error(`[CRM:${userId}] Erro ao persistir lid ${lid}:`, e.message);
     }
@@ -125,7 +132,55 @@ function saveLidMappings(userId, contacts) {
           console.error(`[CRM:${userId}] erro ao processar msg pendente @lid:`, err)
         );
       }
+    } else if (wasSeenWithoutPhone) {
+      // O lid foi visto em DM mas msg já saiu do buffer (timeout) — cria lead órfão se ainda não existe
+      try {
+        const cleanPhone = phone.replace(/[^0-9]/g, '');
+        if (cleanPhone.length >= 8 && cleanPhone.length <= 15) {
+          const lead = db.prepare('SELECT id FROM crm_leads WHERE user_id = ? AND phone = ?').get(userId, cleanPhone);
+          if (!lead) {
+            const now = new Date().toISOString();
+            const info = db.prepare(`
+              INSERT INTO crm_leads (user_id, phone, stage, source, first_contact_at, last_interaction_at, stage_changed_at)
+              VALUES (?, ?, 'entrou_contato', 'whatsapp_dm', ?, ?, ?)
+            `).run(userId, cleanPhone, now, now, now);
+            console.log(`[CRM:${userId}] ✅ Lead órfão criado via resolução tardia de lid ${lid}: phone=${cleanPhone} (id=${info.lastInsertRowid})`);
+            if (io) io.to(`user:${userId}`).emit('crm:lead_created', { lead_id: info.lastInsertRowid });
+          }
+        }
+      } catch (e) {
+        console.error(`[CRM:${userId}] Erro criando lead órfão para lid ${lid}:`, e.message);
+      }
     }
+  }
+}
+
+// Resolve lid → phone via USyncQuery (WhatsApp contact lookup by LID JID)
+// Usado quando senderPn está ausente e contacts.upsert ainda não populou o mapa.
+// Faz uma consulta direta ao servidor WA para obter o phone@s.whatsapp.net do lid.
+async function resolveLidViaUsync(userId, lid) {
+  const session = getSession(userId);
+  if (!session?.sock || session.status !== 'connected') return null;
+  try {
+    const { USyncQuery, USyncUser } = require('@whiskeysockets/baileys');
+    const uq = new USyncQuery().withContactProtocol();
+    uq.withUser(new USyncUser().withId(`${lid}@lid`));
+    const result = await session.sock.executeUSyncQuery(uq);
+    if (!result?.list?.length) return null;
+    const item = result.list[0];
+    const respId = item?.id || '';
+    if (respId.endsWith('@s.whatsapp.net')) {
+      const phone = respId.split('@')[0].replace(/[^0-9]/g, '');
+      if (phone && phone.length >= 8 && phone.length <= 15) {
+        console.log(`[CRM:${userId}] USyncQuery: lid ${lid} → ${phone}`);
+        return phone;
+      }
+    }
+    console.log(`[CRM:${userId}] USyncQuery: lid ${lid} → sem telefone na resposta (id="${respId}")`);
+    return null;
+  } catch (e) {
+    console.warn(`[CRM:${userId}] resolveLidViaUsync falhou: ${e.message}`);
+    return null;
   }
 }
 
@@ -412,19 +467,28 @@ async function connectWhatsApp(userId) {
         } catch (_) {}
 
         if (isLidJid && lid && !session.lidToPhone.has(lid)) {
-          // JID @lid ainda sem mapeamento: enfileira e aguarda até 60s
-          if (!session.lidPending.has(lid)) {
-            const timer = setTimeout(() => {
-              const pending = session.lidPending.get(lid);
-              if (pending) {
-                console.warn(`[CRM:${userId}] Timeout: lid ${lid} nunca resolvido após 60s — descartando ${pending.msgs.length} msg(s)`);
-                session.lidPending.delete(lid);
-              }
-            }, 60_000);
-            session.lidPending.set(lid, { msgs: [], timer });
+          // Tenta resolver via USyncQuery (consulta direta ao WA) antes do buffer
+          const usyncPhone = await resolveLidViaUsync(userId, lid);
+          if (usyncPhone) {
+            saveLidMappings(userId, [{ id: remoteJid, jid: `${usyncPhone}@s.whatsapp.net` }]);
+            await crmAutoLead.handleIncomingDM(userId, msg, io, session.lidToPhone).catch(err =>
+              console.error(`[CRM:${userId}] erro auto-lead (usync):`, err)
+            );
+          } else {
+            // Fallback: enfileira e aguarda até 5min (contacts.upsert/phoneNumberShare pode popular o mapa)
+            if (!session.lidPending.has(lid)) {
+              const timer = setTimeout(() => {
+                const pending = session.lidPending.get(lid);
+                if (pending) {
+                  console.warn(`[CRM:${userId}] Timeout: lid ${lid} nunca resolvido após 5min — ${pending.msgs.length} msg(s) ficam pendentes (lead será criado se phone resolver depois)`);
+                  session.lidPending.delete(lid);
+                }
+              }, 300_000);
+              session.lidPending.set(lid, { msgs: [], timer });
+            }
+            session.lidPending.get(lid).msgs.push(msg);
+            console.log(`[CRM:${userId}] @lid ${lid} enfileirado (buffer: ${session.lidPending.get(lid).msgs.length})`);
           }
-          session.lidPending.get(lid).msgs.push(msg);
-          console.log(`[CRM:${userId}] Msg de @lid ${lid} enfileirada aguardando mapeamento (buffer: ${session.lidPending.get(lid).msgs.length})`);
         } else {
           await crmAutoLead.handleIncomingDM(userId, msg, io, session.lidToPhone).catch(err =>
             console.error(`[CRM:${userId}] erro auto-lead:`, err)
@@ -986,12 +1050,18 @@ async function recoverMissingLeads(userId) {
   const settings = db.prepare('SELECT auto_create_leads FROM crm_settings WHERE user_id = ?').get(userId);
   if (settings && settings.auto_create_leads === 0) return 0;
 
-  // 1) Tenta resolver @lid pendentes com o mapa atual antes de buscar
+  // 1) Tenta resolver @lid pendentes — primeiro pelo mapa em memória, depois via USyncQuery
   const unresolved = db.prepare(`SELECT jid FROM crm_seen_dm_jids WHERE user_id = ? AND phone IS NULL`).all(userId);
   for (const row of unresolved) {
     if (row.jid.endsWith('@lid')) {
       const lid = row.jid.split('@')[0];
-      const phone = session.lidToPhone.get(lid);
+      // Opção A: já tem no mapa em memória
+      let phone = session.lidToPhone.get(lid) || null;
+      // Opção B: tenta via USyncQuery
+      if (!phone) {
+        phone = await resolveLidViaUsync(userId, lid);
+        if (phone) saveLidMappings(userId, [{ id: row.jid, jid: `${phone}@s.whatsapp.net` }]);
+      }
       if (phone) {
         db.prepare(`UPDATE crm_seen_dm_jids SET phone = ? WHERE jid = ? AND user_id = ?`).run(phone, row.jid, userId);
       }

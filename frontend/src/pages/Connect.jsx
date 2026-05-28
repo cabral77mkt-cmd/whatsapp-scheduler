@@ -21,6 +21,9 @@ export default function Connect({ waStatus }) {
   }
 
   useEffect(() => {
+    // Inicia conexão WhatsApp para este usuário
+    api.post('/connect').catch(() => {});
+
     socket.on('qr', ({ qr }) => {
       // qr pode vir como base64 data URL ou como string raw
       if (qr.startsWith('data:image')) {

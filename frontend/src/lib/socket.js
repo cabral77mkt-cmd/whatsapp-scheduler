@@ -4,7 +4,8 @@ const URL = import.meta.env.PROD ? window.location.origin : 'http://localhost:30
 
 const socket = io(URL, {
   transports: ['websocket'],
-  autoConnect: true,
+  autoConnect: false,
+  auth: { token: localStorage.getItem('wa_token') || '' },
 });
 
 export default socket;

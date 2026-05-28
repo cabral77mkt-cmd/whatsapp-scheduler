@@ -36,12 +36,18 @@ router.post('/login', (req, res) => {
   }
 
   const token = createToken(user);
-  res.json({ token, username: user.username, id: user.id });
+  const role = user.is_admin ? 'admin' : (user.role || 'seller');
+  res.json({
+    token, username: user.username, id: user.id, userId: user.id,
+    isAdmin: !!user.is_admin, role, orgId: user.org_id || 1,
+  });
 });
 
 // GET /api/auth/me
 router.get('/me', authMiddleware, (req, res) => {
-  res.json({ id: req.user.sub, username: req.user.username });
+  const user = db.prepare('SELECT id, username, display_name, email, is_admin FROM users WHERE id = ?').get(req.user.sub);
+  if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
+  res.json({ ...user, isAdmin: !!user.is_admin });
 });
 
 // POST /api/auth/change-password

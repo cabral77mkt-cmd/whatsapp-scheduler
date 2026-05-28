@@ -1,0 +1,71 @@
+/* ─────────────────────────────────────────────────────────────
+   Design Tokens — WhatsApp Scheduler Premium
+   Preto puro + dourado. Fonte única de verdade para cores,
+   sombras, radius e animações de toda a plataforma.
+   ───────────────────────────────────────────────────────────── */
+
+:root {
+  /* ── Backgrounds ─────────────────────────────────────── */
+  --bg-canvas:      #0a0a0a;   /* body, fundo mais externo   */
+  --bg-sidebar:     #000000;   /* sidebar, topbar            */
+  --bg-surface:     #111111;   /* cards, painéis             */
+  --bg-surface-2:   #161616;   /* modais, dropdowns elevados */
+  --bg-input:       #0f0f0f;   /* inputs de formulário       */
+  --bg-hover:       #1a1a1a;   /* hover genérico             */
+  --bg-active:      #1f1f1f;   /* item ativo / selecionado   */
+
+  /* ── Gold (ação primária) ────────────────────────────── */
+  --gold-300: #F9D97F;
+  --gold-400: #F5C46B;
+  --gold-500: #D4AF37;         /* primária                   */
+  --gold-600: #B8960C;         /* hover do primário          */
+  --gold-700: #8B6914;         /* pressed / deep             */
+
+  /* ── Texto ───────────────────────────────────────────── */
+  --text-primary:   #FAFAFA;   /* headings, conteúdo chave   */
+  --text-secondary: #A1A1AA;   /* body, rótulos              */
+  --text-muted:     #52525B;   /* placeholder, desabilitado  */
+  --text-disabled:  #3F3F46;
+
+  /* ── Bordas ──────────────────────────────────────────── */
+  --border-default: #1F1F1F;   /* separadores, cards         */
+  --border-strong:  #2A2A2A;   /* inputs, bordas de destaque */
+  --border-focus:   #D4AF37;   /* anel de foco               */
+
+  /* ── Estados semânticos ──────────────────────────────── */
+  --success:     #10B981;
+  --success-bg:  rgba(16,  185, 129, 0.12);
+  --warning:     #F59E0B;
+  --warning-bg:  rgba(245, 158,  11, 0.12);
+  --danger:      #EF4444;
+  --danger-bg:   rgba(239,  68,  68, 0.12);
+  --info:        #3B82F6;
+  --info-bg:     rgba( 59, 130, 246, 0.12);
+
+  /* ── Acentos de módulo (micro-identidade) ────────────── */
+  --accent-whatsapp: #25D366;
+  --accent-crm:      #F97316;
+  --accent-finance:  #3B82F6;
+
+  /* ── Sombras ─────────────────────────────────────────── */
+  --shadow-sm:   0 1px 2px  rgba(0, 0, 0, 0.60);
+  --shadow-md:   0 4px 6px  rgba(0, 0, 0, 0.70);
+  --shadow-lg:   0 10px 20px rgba(0, 0, 0, 0.80);
+  --shadow-gold: 0 0 0 1px rgba(212, 175, 55, 0.30),
+                 0 4px 12px rgba(212, 175, 55, 0.15);
+
+  /* ── Radius ──────────────────────────────────────────── */
+  --radius-xs:   4px;
+  --radius-sm:   6px;
+  --radius-md:   8px;
+  --radius-lg:   12px;
+  --radius-xl:   16px;
+  --radius-2xl:  20px;
+  --radius-full: 9999px;
+
+  /* ── Transições ──────────────────────────────────────── */
+  --duration-fast:   120ms;
+  --duration-normal: 200ms;
+  --duration-slow:   300ms;
+  --ease:            cubic-bezier(0.4, 0, 0.2, 1);
+}

@@ -7,7 +7,7 @@ const autoLead = require('../crm/autoLead');
 const aiScorer = require('../crm/aiScorer');
 const coaching = require('../crm/coachingService');
 const commission = require('../crm/commissionService');
-const { sendMessage, getStatus } = require('../whatsapp/client');
+const { sendMessage, getStatus, getSocket } = require('../whatsapp/client');
 const { logAudit } = require('../middleware/audit');
 const { dispatch: dispatchWebhook } = require('../webhooks/outbound');
 const { ROLE_LEVELS } = require('../middleware/roles');
@@ -309,6 +309,60 @@ router.get('/:id', (req, res) => {
 });
 
 // POST / — cadastro manual
+// POST /import-from-phone — busca o lid no WhatsApp e cadastra lead se houver DM
+router.post('/import-from-phone', async (req, res) => {
+  const userId = Number(req.user.sub);
+  ensureSeeds(userId);
+  const { phone, name } = req.body || {};
+  if (!phone?.trim()) return res.status(400).json({ error: 'phone obrigatório' });
+
+  const cleanPhone = String(phone).replace(/[^0-9]/g, '');
+  if (cleanPhone.length < 8 || cleanPhone.length > 15) {
+    return res.status(400).json({ error: 'phone inválido' });
+  }
+
+  const existing = db.prepare('SELECT id, name FROM crm_leads WHERE user_id = ? AND phone = ?').get(userId, cleanPhone);
+  if (existing) return res.json({ ok: true, lead_id: existing.id, already_existed: true });
+
+  const sock = getSocket(userId);
+  if (!sock || getStatus(userId) !== 'connected') {
+    return res.status(503).json({ error: 'WhatsApp não conectado' });
+  }
+
+  let lid = null;
+  try {
+    const results = await sock.onWhatsApp(`+${cleanPhone}`);
+    if (Array.isArray(results) && results[0]?.exists) {
+      const r = results[0];
+      if (r.lid) {
+        lid = String(r.lid).split('@')[0];
+        db.prepare(`INSERT OR REPLACE INTO crm_lid_phone (lid, user_id, phone, updated_at)
+                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)`).run(lid, userId, cleanPhone);
+        db.prepare(`INSERT OR IGNORE INTO crm_seen_dm_jids (jid, user_id, phone) VALUES (?, ?, ?)`)
+          .run(`${lid}@lid`, userId, cleanPhone);
+        db.prepare(`UPDATE crm_seen_dm_jids SET phone = ? WHERE jid = ? AND user_id = ? AND phone IS NULL`)
+          .run(cleanPhone, `${lid}@lid`, userId);
+      }
+    } else {
+      return res.status(404).json({ error: 'Número não está no WhatsApp' });
+    }
+  } catch (e) {
+    return res.status(500).json({ error: 'falha ao consultar WhatsApp: ' + e.message });
+  }
+
+  const now = new Date().toISOString();
+  const info = db.prepare(`
+    INSERT INTO crm_leads (user_id, name, phone, stage, source, first_contact_at, last_interaction_at, stage_changed_at)
+    VALUES (?, ?, ?, 'entrou_contato', 'whatsapp_dm', ?, ?, ?)
+  `).run(userId, name || null, cleanPhone, now, now, now);
+  const leadId = info.lastInsertRowid;
+  console.log(`[CRM:${userId}] Lead criado via import-from-phone: id=${leadId} phone=${cleanPhone} lid=${lid || '(não resolvido)'}`);
+
+  const newLead = db.prepare('SELECT * FROM crm_leads WHERE id = ?').get(leadId);
+  if (req.app.get('io')) req.app.get('io').to(`user:${userId}`).emit('crm:lead_created', { lead_id: leadId });
+  res.status(201).json({ ok: true, lead: newLead, lid });
+});
+
 router.post('/', (req, res) => {
   const userId = Number(req.user.sub);
   ensureSeeds(userId);

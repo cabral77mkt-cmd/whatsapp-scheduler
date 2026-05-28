@@ -167,9 +167,10 @@ export default function BulkSend() {
   }, []);
 
   // Polling automático quando há envio em andamento
+  // Não inicia se a aba está em background (economiza bateria/dados no mobile)
   useEffect(() => {
     const hasActive = bulkHistory.some((b) => b.status === 'running');
-    if (hasActive && !pollRef.current) {
+    if (hasActive && !pollRef.current && !document.hidden) {
       pollRef.current = setInterval(loadHistory, 2000);
     } else if (!hasActive && pollRef.current) {
       clearInterval(pollRef.current);
@@ -177,6 +178,20 @@ export default function BulkSend() {
     }
     return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
   }, [bulkHistory]);
+
+  // Retomar polling ao voltar para a aba (se ainda houver envio ativo)
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (!document.hidden) {
+        loadHistory();
+      } else if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, []);
 
   const toggleContact = (phone) =>
     setSelectedPhones((prev) =>

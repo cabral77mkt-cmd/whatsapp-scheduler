@@ -1,0 +1,24 @@
+{
+  "name": "WA Scheduler — Plataforma Comercial",
+  "short_name": "WA Scheduler",
+  "description": "CRM, WhatsApp e Finanças em um único lugar",
+  "theme_color": "#D4AF37",
+  "background_color": "#0a0a0a",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "start_url": "/",
+  "scope": "/",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    { "name": "Inbox",  "url": "/inbox",       "icons": [{ "src": "favicon.svg", "sizes": "any" }] },
+    { "name": "Kanban", "url": "/crm/kanban",   "icons": [{ "src": "favicon.svg", "sizes": "any" }] }
+  ]
+}

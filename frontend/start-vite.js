@@ -1,8 +1,11 @@
 #!/usr/bin/env node
 // Wrapper para converter --root <path> em argumento posicional para o Vite
 // (Esta versão do Vite aceita: vite [root], não vite --root <path>)
-const { spawn } = require('child_process');
-const path = require('path');
+import { spawn } from 'child_process';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const args = process.argv.slice(2);
 const newArgs = [];
@@ -19,7 +22,7 @@ for (let i = 0; i < args.length; i++) {
 // Coloca root como primeiro argumento posicional
 if (root) newArgs.unshift(root);
 
-const viteBin = path.join(__dirname, 'node_modules', 'vite', 'bin', 'vite.js');
+const viteBin = join(__dirname, 'node_modules', 'vite', 'bin', 'vite.js');
 const child = spawn(process.execPath, [viteBin, ...newArgs], {
   stdio: 'inherit',
   cwd: __dirname,

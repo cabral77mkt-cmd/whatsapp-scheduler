@@ -1,11 +1,9 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import api from '../lib/api';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function Login() {
-  const navigate = useNavigate();
   const { login } = useAuth();
   const [form, setForm] = useState({ username: '', password: '' });
   const [loading, setLoading] = useState(false);
@@ -25,9 +23,9 @@ export default function Login() {
         username: form.username.trim(),
         password: form.password,
       });
-      login(data.token, data.username);
+      login({ token: data.token, username: data.username, userId: data.userId, isAdmin: data.isAdmin, role: data.role });
       toast.success(`Bem-vindo, ${data.username}!`);
-      navigate('/');
+      // O LoginGuard em App.jsx redireciona automaticamente quando isAuthenticated vira true
     } catch (err) {
       toast.error(err.message || 'Erro ao fazer login');
     } finally {
@@ -36,15 +34,20 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
+    <div className="min-h-screen flex items-center justify-center p-4" style={{ background: 'var(--bg-canvas)' }}>
       <div className="w-full max-w-sm">
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-whatsapp-green rounded-2xl text-3xl mb-4">
-            💬
+          <div
+            className="inline-flex items-center justify-center w-16 h-16 rounded-2xl text-3xl mb-4 font-bold"
+            style={{ background: 'var(--gold-500)', color: '#000' }}
+          >
+            W
           </div>
-          <h1 className="text-2xl font-bold text-white">WhatsApp Scheduler</h1>
-          <p className="text-gray-400 text-sm mt-1">Faça login para continuar</p>
+          <h1 className="text-2xl font-display font-bold" style={{ color: 'var(--text-primary)' }}>
+            WA Scheduler
+          </h1>
+          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>Faça login para continuar</p>
         </div>
 
         {/* Formulário */}
@@ -90,8 +93,10 @@ export default function Login() {
           </button>
         </form>
 
-        <p className="text-center text-xs text-gray-600 mt-6">
-          Usuário padrão: <span className="text-gray-400">admin</span> / Senha: <span className="text-gray-400">admin123</span>
+        <p className="text-center text-xs mt-6" style={{ color: 'var(--text-disabled)' }}>
+          Usuário padrão:{' '}
+          <span style={{ color: 'var(--text-secondary)' }}>admin</span> / Senha:{' '}
+          <span style={{ color: 'var(--text-secondary)' }}>admin123</span>
         </p>
       </div>
     </div>
